@@ -82,7 +82,7 @@ const CATEGORY_FEEDS = {
     { source: "Mathematics News", url: "https://www.ams.org/publications/journals/rss.xml" },
     { source: "ArXiv Math", url: "https://export.arxiv.org/rss/math" }
   ],
-   computers: [
+  computers: [
     { source: "Computerworld", url: "https://www.computerworld.com/index.rss" },
     { source: "TechRadar Computing", url: "https://www.techradar.com/rss/computing" },
   ],
@@ -104,7 +104,6 @@ const CATEGORY_FEEDS = {
   ],
   ml: [{ source: "ArXiv Machine Learning", url: "https://export.arxiv.org/rss/cs.LG" }],
   "deep-learning": [
-
     { source: "ArXiv AI", url: "https://export.arxiv.org/rss/cs.AI" },
     { source: "ArXiv Machine Learning", url: "https://export.arxiv.org/rss/cs.LG" },
     { source: "ArXiv Computation and Language", url: "https://export.arxiv.org/rss/cs.CL" },
@@ -140,11 +139,11 @@ const CATEGORY_FEEDS = {
     { source: "HubSpot Social Media", url: "https://blog.hubspot.com/marketing/rss.xml" },
     { source: "Neil Patel Social Media", url: "https://neilpatel.com/blog/feed/" }
   ]
-  
 };
 
 /* ---------------------------- Helper: Fetch RSS feeds ---------------------------- */
 async function fetchFromFeeds(feeds) {
+  if (!feeds || !Array.isArray(feeds)) return [];
   const results = [];
   await Promise.all(
     feeds.map(async (feed) => {
@@ -166,13 +165,6 @@ async function fetchFromFeeds(feeds) {
   );
   return results;
 }
-
-/* ---------------------------- Scraper & other routes remain the same ---------------------------- */
-// (scrapeSite, scrapePKNews, scrapeBollywood, scrapeHollywood, scrapeHorror, scrapeCrime, scrapeWorldRecords, scrapeLollywood, generateSearchRSS, router.get) 
-// ⬆️ keep the exact same as in your original file.
-
-
-
 
 /* ---------------------------- Generic Scraper ---------------------------- */
 async function scrapeSite(url, itemSelector, titleSelector, linkSelector, descSelector, baseUrl, sourceName) {
@@ -265,11 +257,9 @@ router.get("/", async (req, res) => {
     if (category) {
       const cat = category.toLowerCase();
 
-      // ✅ Deeplearning only fetch RSS feeds, no scraping
-      if (cat === "deeplearning") {
-        results = await fetchFromFeeds(CATEGORY_FEEDS.deeplearning);
+      if (cat === "deep-learning") {
+        results = await fetchFromFeeds(CATEGORY_FEEDS["deep-learning"]);
       } else if (cat === "social-media") {
-        // Social media category fetch only RSS feeds
         results = await fetchFromFeeds(CATEGORY_FEEDS["social-media"]);
       } else {
         if (CATEGORY_FEEDS[cat]) results = await fetchFromFeeds(CATEGORY_FEEDS[cat]);
@@ -283,10 +273,15 @@ router.get("/", async (req, res) => {
         if (cat === "lollywood") results = results.concat(await scrapeLollywood());
       }
 
+      // Fallback: NewsAPI
       if (!results.length && NEWS_API_KEY) {
-        const fallback = await axios.get(NEWS_API_URL, { params: { apiKey: NEWS_API_KEY, q: category, category, pageSize, page } });
+        const params = { apiKey: NEWS_API_KEY, pageSize, page };
+        if (CATEGORY_FEEDS[cat]) params.category = cat;
+        else params.q = cat;
+        const fallback = await axios.get(NEWS_API_URL, { params });
         results = fallback.data.articles || [];
       }
+
       return res.json({ status: "ok", totalResults: results.length, articles: results });
     }
 
@@ -302,18 +297,25 @@ router.get("/", async (req, res) => {
       results = await scrapePKNews();
     } else {
       const feedsMap = { in: INDIA_FEEDS, global: GLOBAL_FEEDS };
-      if (feedsMap[country.toLowerCase()]) results = await fetchFromFeeds(feedsMap[country.toLowerCase()]);
-      else if (NEWS_API_KEY) {
-        const response = await axios.get(NEWS_API_URL, { params: { apiKey: NEWS_API_KEY, country, q, category, pageSize, page } });
+      if (feedsMap[country.toLowerCase()]) {
+        results = await fetchFromFeeds(feedsMap[country.toLowerCase()]);
+      } else if (NEWS_API_KEY) {
+        const params = { apiKey: NEWS_API_KEY, pageSize, page };
+        if (country) params.country = country;
+        if (q) params.q = q;
+        if (category) params.category = category;
+        const response = await axios.get(NEWS_API_URL, { params });
         results = response.data.articles || [];
       }
     }
 
     return res.json({ status: "ok", totalResults: results.length, articles: results });
   } catch (err) {
-    console.error("❌ Error fetching news:", err.message);
-    return res.status(500).json({ error: "Failed to fetch news" });
-  }
+  console.error("❌ Error fetching news:", err.message);
+  console.error(err.response?.data || err); // <--- log full error details
+  return res.status(500).json({ error: "Failed to fetch news", details: err.message });
+}
+
 });
 
 export default router;
